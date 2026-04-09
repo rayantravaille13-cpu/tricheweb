@@ -634,17 +634,25 @@ function startStudentPoll() {
 }
 
 function startVisibilityTracking() {
-  // Wake Lock uniquement — on ne marque jamais hors ligne via visibilitychange
   document.addEventListener('visibilitychange', async () => {
-    if (!document.hidden && currentStudentId) {
+    if (document.hidden) {
+      // Marquer hors ligne seulement si l'élève change vraiment d'onglet
+      // (pas pour la veille — le Wake Lock s'en occupe)
+      visibilityTimeout = setTimeout(markStudentOffline, 3000);
+    } else {
+      clearTimeout(visibilityTimeout);
       await startWakeLock();
       markStudentOnline();
     }
   });
   window.addEventListener('focus', () => {
+    clearTimeout(visibilityTimeout);
     if(state.examActive) document.getElementById('warning-overlay').classList.add('active');
     markStudentOnline();
     startWakeLock();
+  });
+  window.addEventListener('blur', () => {
+    visibilityTimeout = setTimeout(markStudentOffline, 3000);
   });
   window.addEventListener('beforeunload', markStudentOffline);
 }
