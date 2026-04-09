@@ -610,24 +610,20 @@ function startStudentPoll() {
 }
 
 function startVisibilityTracking() {
-  // On ne marque PLUS hors ligne à la simple mise en veille de l'écran
-  // Le Wake Lock empêche la veille, et le timeout de 5 min gère les cas extrêmes
-  // On marque hors ligne SEULEMENT si l'élève change vraiment d'onglet ou ferme
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-      // Attendre 30 secondes avant de marquer hors ligne (tolérance veille)
-      visibilityTimeout = setTimeout(markStudentOffline, 30000);
-    } else {
-      clearTimeout(visibilityTimeout);
+  // Wake Lock uniquement — on ne marque jamais hors ligne via visibilitychange
+  document.addEventListener('visibilitychange', async () => {
+    if (!document.hidden && currentStudentId) {
+      await startWakeLock();
       markStudentOnline();
-      startWakeLock(); // relance le wake lock au retour
     }
   });
   window.addEventListener('focus', () => {
-    clearTimeout(visibilityTimeout);
     if(state.examActive) document.getElementById('warning-overlay').classList.add('active');
     markStudentOnline();
+    startWakeLock();
   });
+  window.addEventListener('beforeunload', markStudentOffline);
+}
   window.addEventListener('beforeunload', markStudentOffline);
 }
 
@@ -727,15 +723,8 @@ function startProfPoll() {
 }
 
 function checkHeartbeats() {
-  const now = Date.now();
-  let changed = false;
-  for (const id in state.students) {
-    const s = state.students[id];
-    if (s.online && s.heartbeat && (now - s.heartbeat) > 300000) {
-      s.online = false; s.leftAt = new Date().toISOString(); changed = true;
-    }
-  }
-  if (changed) writeBin(state);
+  // Pas de timeout — on ne déconnecte jamais automatiquement un élève
+  // Seul le Wake Lock et le beforeunload gèrent la déconnexion
 }
 
 function renderStudentsGrid() {
@@ -866,5 +855,4 @@ initBin();
 </script>
 </body>
 </html>
-
 
