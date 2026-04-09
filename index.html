@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">a
+<html lang="fr">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -327,6 +327,10 @@
       <div class="status-badge green"><div class="pulse green"></div>Mode examen désactivé</div>
       <div class="big-status green">LIBRE</div>
       <div class="status-desc">Vous êtes connecté(e). Le professeur n'a pas encore lancé le mode examen.<br>Restez sur cette page.</div>
+      <button id="wakelock-btn" onclick="activerWakeLock()" style="margin-top:8px;padding:14px 28px;border-radius:14px;border:none;background:linear-gradient(135deg,#6366f1,#a78bfa);color:white;font-size:15px;font-weight:700;cursor:pointer;box-shadow:0 4px 20px rgba(99,102,241,0.35);font-family:'Outfit',sans-serif;">
+        📱 Garder l'écran allumé
+      </button>
+      <div id="wakelock-status" style="font-size:12px;color:var(--muted);font-family:'Space Mono',monospace;display:none"></div>
     </div>
     <div id="state-exam" style="display:none;flex-direction:column;align-items:center;gap:24px">
       <div class="status-badge red"><div class="pulse red"></div>Examen en cours</div>
@@ -560,26 +564,46 @@ async function connectStudent() {
 // =============================================
 let wakeLock = null;
 
-async function startWakeLock() {
-  if (!('wakeLock' in navigator)) return;
+async function activerWakeLock() {
+  const btn = document.getElementById('wakelock-btn');
+  const status = document.getElementById('wakelock-status');
+  if (!('wakeLock' in navigator)) {
+    btn.textContent = '❌ Non supporté sur ce navigateur';
+    btn.style.background = '#94a3b8';
+    status.style.display = 'block';
+    status.textContent = 'Utilisez Chrome pour cette fonctionnalité';
+    return;
+  }
   try {
     wakeLock = await navigator.wakeLock.request('screen');
-    console.log('✅ Wake Lock actif — écran ne se mettra pas en veille');
+    btn.textContent = '✅ Écran maintenu allumé';
+    btn.style.background = 'linear-gradient(135deg,#10b981,#38ef7d)';
+    btn.style.color = 'white';
+    btn.disabled = true;
+    status.style.display = 'block';
+    status.textContent = 'L\'écran ne se mettra pas en veille';
     wakeLock.addEventListener('release', () => {
-      // Le wake lock peut être libéré par le système — on le relance
-      if (currentStudentId) setTimeout(startWakeLock, 1000);
+      if (currentStudentId) {
+        btn.textContent = '📱 Réactiver l\'écran allumé';
+        btn.style.background = 'linear-gradient(135deg,#f59e0b,#f97316)';
+        btn.disabled = false;
+        status.textContent = 'Appuyez à nouveau pour réactiver';
+      }
     });
-  } catch(e) { console.log('Wake Lock non disponible:', e.message); }
+  } catch(e) {
+    btn.textContent = '❌ Erreur — réessayez';
+    btn.style.background = '#ef4444';
+    status.style.display = 'block';
+    status.textContent = e.message;
+  }
 }
 
-// Relance le wake lock si la page redevient visible (retour de veille)
-document.addEventListener('visibilitychange', async () => {
-  if (document.visibilityState === 'visible' && currentStudentId) {
-    await startWakeLock();
-    // Aussi mettre à jour le heartbeat immédiatement au retour
-    markStudentOnline();
-  }
-});
+async function startWakeLock() {
+  // Silencieux — relance automatique si déjà activé manuellement
+  if (!wakeLock || wakeLock.released === false) return;
+  if (!('wakeLock' in navigator)) return;
+  try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {}
+}
 
 // Heartbeat toutes les 8s — avec wake lock l'écran reste allumé
 // Timeout prof à 3 minutes pour tolérer les veilles brèves
