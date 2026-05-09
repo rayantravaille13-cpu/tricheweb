@@ -225,6 +225,10 @@
   .student-card.online { border-color:var(--green);background:linear-gradient(135deg,#f0fdf4,#dcfce7); }
   .student-card.offline { border-color:var(--red);background:linear-gradient(135deg,#fff1f2,#ffe4e6); }
   .student-card.offline::after { content:'⚠ SORTI';position:absolute;top:10px;right:10px;font-size:10px;font-family:'Space Mono',monospace;color:var(--red);font-weight:700;letter-spacing:0.1em;background:var(--red-light);padding:2px 8px;border-radius:6px; }
+  .student-card.cheated { border-color:#b45309 !important;background:linear-gradient(135deg,#fffbeb,#fef3c7) !important; }
+  .student-card.cheated::after { content:'⚠ TRICHE';position:absolute;top:10px;right:10px;font-size:10px;font-family:'Space Mono',monospace;color:#b45309;font-weight:700;letter-spacing:0.1em;background:#fef3c7;padding:2px 8px;border-radius:6px; }
+  .student-avatar.cheated { background:linear-gradient(135deg,#b45309,#f59e0b) !important;color:white; }
+  .student-dot.cheated { background:#b45309 !important; }
   .student-card.selectable { cursor:pointer;user-select:none; }
   .student-card.selected { border-color:var(--blue) !important;background:var(--blue-light) !important;outline:3px solid rgba(136,5,52,0.1); }
   .student-avatar { width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:900;flex-shrink:0; }
@@ -396,7 +400,7 @@
     <div class="stats-row">
       <div class="stat-card purple"><div class="stat-num" id="stat-total">0</div><div class="stat-label">Élèves connectés</div></div>
       <div class="stat-card green"><div class="stat-num" id="stat-online">0</div><div class="stat-label">Sur la page</div></div>
-      <div class="stat-card red"><div class="stat-num" id="stat-offline">0</div><div class="stat-label">Sortis / Absents</div></div>
+      <div class="stat-card red"><div class="stat-num" id="stat-offline">0</div><div class="stat-label">Triches détectées</div></div>
     </div>
     <div class="control-panel">
       <div class="control-left">
@@ -422,8 +426,7 @@
     </div>
     <div class="selection-bar" id="selection-bar">
       <div class="selection-count" id="selection-count">0 élève(s) sélectionné(s)</div>
-      <button class="btn-sm btn-absent" onclick="marquerAbsent()">🚫 Marquer absent</button>
-      <button class="btn-sm btn-retour" onclick="retourPresence()">✅ Retour en présence</button>
+      <button class="btn-sm btn-retour" onclick="effacerTriche()">✅ Effacer triche</button>
       <button class="btn-sm btn-danger" onclick="openDeleteSelectedModal()">🗑 Supprimer</button>
       <button class="btn-sm" onclick="toggleSelectMode()">✕ Annuler</button>
     </div>
@@ -677,6 +680,7 @@ async function markStudentOffline() {
   if (!remote||!remote.students||!remote.students[currentStudentId]) return;
   remote.students[currentStudentId].online  = false;
   remote.students[currentStudentId].leftAt  = new Date().toISOString();
+  if (state.examActive) remote.students[currentStudentId].cheated = true;
   state = remote;
   await writeBin(state);
 }
@@ -687,6 +691,7 @@ async function markStudentOnline() {
   if (!remote||!remote.students||!remote.students[currentStudentId]) return;
   remote.students[currentStudentId].online    = true;
   remote.students[currentStudentId].heartbeat = Date.now();
+  // Ne pas effacer cheated — le prof doit le faire manuellement
   state = remote;
   await writeBin(state);
 }
@@ -775,13 +780,15 @@ function renderStudentsGrid() {
   const grid = document.getElementById('students-grid');
   const students = Object.entries(state.students||{});
   document.getElementById('stat-total').textContent   = students.length;
-  document.getElementById('stat-online').textContent  = students.filter(([,s])=>s.online).length;
-  document.getElementById('stat-offline').textContent = students.filter(([,s])=>!s.online).length;
+  document.getElementById('stat-online').textContent  = students.filter(([,s])=>s.online && !s.cheated).length;
+  document.getElementById('stat-offline').textContent = students.filter(([,s])=>s.cheated).length;
   if (students.length===0) { grid.innerHTML=`<div class="empty-state" style="grid-column:1/-1"><div class="icon">👀</div><p>Aucun élève connecté pour l'instant.</p></div>`; return; }
   grid.innerHTML = students.map(([id,s]) => {
-    const status   = s.online?'online':'offline';
+    const status   = s.cheated ? 'cheated' : (s.online?'online':'offline');
     const initials = (s.prenom[0]+s.nom[0]).toUpperCase();
-    const timeInfo = s.online ? `Connecté à ${fmt(s.joinedAt)}` : `Sorti à ${fmt(s.leftAt)}`;
+    const timeInfo = s.cheated
+      ? `⚠ A quitté la page à ${fmt(s.leftAt)}`
+      : (s.online ? `Connecté à ${fmt(s.joinedAt)}` : `Sorti à ${fmt(s.leftAt)}`);
     const isSel    = selectedIds.has(id);
     const checkbox = selectMode ? `<div class="student-checkbox">${isSel?'✓':''}</div>` : `<div class="student-dot ${status}"></div>`;
     return `<div class="student-card ${status} ${selectMode?'selectable':''} ${isSel?'selected':''}" onclick="toggleStudentSelect('${id}')">
@@ -891,30 +898,12 @@ function openDeleteSelectedModal(){if(selectedIds.size===0){alert('Aucun élève
 async function deleteSelected(){closeModal('modal-delete-selected');selectedIds.forEach(id=>{delete state.students[id];});selectedIds.clear();showLoader('Suppression…');await writeBin(state);hideLoader();renderStudentsGrid();}
 function openDeleteAllModal(){document.getElementById('modal-delete-all').classList.add('active');}
 async function deleteAll(){closeModal('modal-delete-all');state.students={};selectedIds.clear();showLoader('Suppression…');await writeBin(state);hideLoader();renderStudentsGrid();}
-async function marquerAbsent(){
+async function effacerTriche(){
   if(selectedIds.size===0){alert('Aucun élève sélectionné.');return;}
-  showLoader('Marquage absent…');
+  showLoader('Réinitialisation…');
   selectedIds.forEach(id=>{
     if(state.students[id]){
-      state.students[id].online = false;
-      state.students[id].leftAt = new Date().toISOString();
-    }
-  });
-  await writeBin(state);
-  hideLoader();
-  selectedIds.clear();
-  document.getElementById('selection-count').textContent='0 élève(s) sélectionné(s)';
-  renderStudentsGrid();
-}
-
-async function retourPresence(){
-  if(selectedIds.size===0){alert('Aucun élève sélectionné.');return;}
-  showLoader('Retour en présence…');
-  selectedIds.forEach(id=>{
-    if(state.students[id]){
-      state.students[id].online = true;
-      state.students[id].joinedAt = new Date().toISOString();
-      state.students[id].leftAt = null;
+      state.students[id].cheated = false;
     }
   });
   await writeBin(state);
