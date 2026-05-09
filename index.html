@@ -358,7 +358,7 @@
     <div style="font-size:64px">⚠️</div>
     <div style="font-size:40px;font-weight:800;color:#fff">Absence détectée !</div>
     <div style="font-size:18px;color:rgba(255,255,255,0.8)">Vous avez quitté la page.<br>Le professeur a été notifié.</div>
-    <button class="btn-md cgreen" onclick="returnToPage()" style="padding:14px 32px;font-size:16px;border-radius:10px;border:none;cursor:pointer;font-family:'Syne',sans-serif;font-weight:700">Revenir →</button>
+    <div style="font-size:15px;color:rgba(255,255,255,0.6);font-family:'Space Mono',monospace;margin-top:8px">Cette page est maintenant bloquée.</div>
   </div>
 </div>
 
@@ -648,23 +648,22 @@ function startStudentPoll() {
 function startVisibilityTracking() {
   document.addEventListener('visibilitychange', async () => {
     if (document.hidden) {
-      // Marquer hors ligne seulement si l'élève change vraiment d'onglet
-      // (pas pour la veille — le Wake Lock s'en occupe)
-      visibilityTimeout = setTimeout(markStudentOffline, 3000);
-    } else {
       clearTimeout(visibilityTimeout);
-      await startWakeLock();
-      markStudentOnline();
+      visibilityTimeout = setTimeout(markStudentOffline, 3000);
     }
+    // Si l'élève revient — on ne fait rien, l'overlay reste affiché
   });
   window.addEventListener('focus', () => {
     clearTimeout(visibilityTimeout);
-    if(state.examActive) document.getElementById('warning-overlay').classList.add('active');
-    markStudentOnline();
+    // Si déjà marqué absent/tricheur, garder l'overlay
+    if (state.examActive && state.students[currentStudentId] &&
+        (state.students[currentStudentId].cheated || !state.students[currentStudentId].online)) {
+      document.getElementById('warning-overlay').classList.add('active');
+    }
     startWakeLock();
   });
   window.addEventListener('blur', () => {
-    visibilityTimeout = setTimeout(markStudentOffline, 3000);
+    if (state.examActive) visibilityTimeout = setTimeout(markStudentOffline, 3000);
   });
   window.addEventListener('beforeunload', markStudentOffline);
 }
@@ -679,16 +678,11 @@ async function markStudentOffline() {
 }
 
 async function markStudentOnline() {
-  if (!currentStudentId||!BIN_ID||!state.students[currentStudentId]) return;
-  if (state.students[currentStudentId].cheated) return;
-  state.students[currentStudentId].online    = true;
-  state.students[currentStudentId].heartbeat = Date.now();
-  await writeBin(state);
+  // Bloqué — le retour en présence ne se fait plus automatiquement
 }
 
 function returnToPage() {
-  document.getElementById('warning-overlay').classList.remove('active');
-  markStudentOnline();
+  // Bloqué — l'élève ne peut plus revenir
 }
 
 function syncStudentUI() {
