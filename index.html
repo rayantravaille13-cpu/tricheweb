@@ -621,29 +621,28 @@ async function startWakeLock() {
 // Heartbeat toutes les 8s — avec wake lock l'écran reste allumé
 // Timeout prof à 3 minutes pour tolérer les veilles brèves
 function startHeartbeat() {
-  clearInterval(heartbeatInterval);
-  heartbeatInterval = setInterval(async () => {
-    if (!currentStudentId) return;
-    const remote = await readBin();
-    if (!remote||!remote.students||!remote.students[currentStudentId]) return;
-    remote.students[currentStudentId].heartbeat = Date.now();
-    remote.students[currentStudentId].online    = true;
-    state = remote;
-    await writeBin(state);
-  }, 8000);
+  // Heartbeat fusionné dans startStudentPoll — rien à faire ici
 }
 
-// Poll pour détecter le lancement d'examen par le prof
+// Poll unique : détecte examen + met à jour heartbeat en un seul appel
 function startStudentPoll() {
   clearInterval(studentPollInterval);
   studentPollInterval = setInterval(async () => {
     const remote = await readBin();
     if (!remote) return;
     const wasExam = state.examActive;
-    state = remote;
+    // Injecter heartbeat dans la lecture avant réécriture
+    if (currentStudentId && remote.students && remote.students[currentStudentId] && !remote.students[currentStudentId].cheated) {
+      remote.students[currentStudentId].heartbeat = Date.now();
+      remote.students[currentStudentId].online    = true;
+      state = remote;
+      await writeBin(state);
+    } else {
+      state = remote;
+    }
     if (state.examActive !== wasExam) syncStudentUI();
     if (state.examActive) updateStudentTimer();
-  }, 5000);
+  }, 10000);
 }
 
 function startVisibilityTracking() {
@@ -671,24 +670,19 @@ function startVisibilityTracking() {
 }
 
 async function markStudentOffline() {
-  if (!currentStudentId||!BIN_ID) return;
-  const remote = await readBin();
-  if (!remote||!remote.students||!remote.students[currentStudentId]) return;
-  remote.students[currentStudentId].online  = false;
-  remote.students[currentStudentId].leftAt  = new Date().toISOString();
-  if (state.examActive) remote.students[currentStudentId].cheated = true;
-  state = remote;
+  if (!currentStudentId||!BIN_ID||!state.students[currentStudentId]) return;
+  // Écriture directe sur state local — pas de readBin() inutile
+  state.students[currentStudentId].online  = false;
+  state.students[currentStudentId].leftAt  = new Date().toISOString();
+  if (state.examActive) state.students[currentStudentId].cheated = true;
   await writeBin(state);
 }
 
 async function markStudentOnline() {
-  if (!currentStudentId||!BIN_ID) return;
-  const remote = await readBin();
-  if (!remote||!remote.students||!remote.students[currentStudentId]) return;
-  remote.students[currentStudentId].online    = true;
-  remote.students[currentStudentId].heartbeat = Date.now();
-  // Ne pas effacer cheated — le prof doit le faire manuellement
-  state = remote;
+  if (!currentStudentId||!BIN_ID||!state.students[currentStudentId]) return;
+  if (state.students[currentStudentId].cheated) return;
+  state.students[currentStudentId].online    = true;
+  state.students[currentStudentId].heartbeat = Date.now();
   await writeBin(state);
 }
 
@@ -764,7 +758,7 @@ function startProfPoll() {
     checkHeartbeats();
     renderStudentsGrid();
     syncProfExamUI();
-  }, 4000);
+  }, 8000);
 }
 
 function checkHeartbeats() {
